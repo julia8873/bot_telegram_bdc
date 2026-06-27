@@ -41,40 +41,34 @@ ni redesplegar el bot.
 
 ```
  Usuario (Telegram)
-        │
-        ▼
- ┌─────────────────┐
- │     bot.py       │  ← polling continuo, corre dentro del contenedor
- └────────┬─────────┘
+        |
+        v
+  -----------------
+ |     bot.py      |  polling continuo, se ejecuta dentro del contenedor
+  -----------------
+          |
+          v
+  ------------------      git clone / pull cada N seg
+ │  retrieval.py    |  < --------------------------------
+ │ (busca contexto) |                                   |
+  ------------------                          -------------------
+          │                                  │ Repo BdC (GitHub) |
+          v                                   -------------------
+  --------------------
+ │   llm_client.py    |
+  --------------------
           │
-          ▼
- ┌─────────────────┐      git clone / pull cada N seg
- │  retrieval.py     │ ◄──────────────────────────────┐
- │ (busca contexto)  │                                 │
- └────────┬─────────┘                        ┌───────────────────┐
-          │                                  │  Repo BdC (GitHub) │
-          ▼                                  └───────────────────┘
- ┌─────────────────┐
- │  llm_client.py    │  ← abstracción de proveedor
- │ (OpenAI/Anthropic/│
- │  UGR...)           │
- └────────┬─────────┘
-          │
-          ▼
+          v
    Respuesta al usuario
 ```
-
-La pieza clave es `llm_client.py`: el resto del código solo llama a
-`generate(prompt)`, sin saber qué proveedor hay detrás. Cambiar de LLM es
-cambiar variables de entorno, no código.
 
 ## Estructura del repo
 
 ```
 telegram-kb-bot/
 ├── src/
-│   ├── bot.py           # Entrypoint: bot de Telegram + sincronización de la BdC
-│   ├── retrieval.py      # Búsqueda de contexto relevante en la BdC clonada
+│   ├── bot.py            # Entrypoint: bot de Telegram + sincronización de la BdC
+│   ├── retrieval.py      # Búsqueda de contexto relevante en la BdC
 │   └── llm_client.py     # Abstracción de proveedor LLM (OpenAI/Anthropic/UGR)
 ├── Dockerfile
 ├── docker-compose.yml
@@ -87,12 +81,10 @@ telegram-kb-bot/
 
 - Docker y Docker Compose instalados en el servidor.
 - Un bot de Telegram creado vía [@BotFather](https://t.me/BotFather) (token).
-- Acceso al repo de GitHub de la BdC (URL, y un Personal Access Token de
-  solo lectura si es privado).
-- Credenciales de algún LLM para las pruebas iniciales (OpenAI, Anthropic...)
-  y, más adelante, del LLM de la UGR.
+- Acceso al repo de GitHub de la BdC (URL, y un Personal Access Token de solo lectura si es privado).
+- Credenciales de algún LLM para las pruebas iniciales (OpenAI, Anthropic...) y, más adelante, del LLM de la UGR.
 
-## Puesta en marcha
+## Cómo Ejecutar
 
 ```bash
 git clone https://github.com/<tu-org>/telegram-kb-bot.git
