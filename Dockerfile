@@ -1,3 +1,5 @@
+# Define cómo se construye la imagen
+
 # Clonaremos el git para poder hacer git pull sin tener que actualizar la imagen todo el rato
 
 # Imagen base: cogemos slim porque ocupa mucho menos

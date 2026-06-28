@@ -65,7 +65,7 @@ ni redesplegar el bot.
 ## Estructura del repo
 
 ```
-telegram-kb-bot/
+bot-telegram-bdc/
 ├── src/
 │   ├── bot.py            # Entrypoint: bot de Telegram + sincronización de la BdC
 │   ├── retrieval.py      # Búsqueda de contexto relevante en la BdC
@@ -100,8 +100,8 @@ construye igual):
 ## Cómo Ejecutar
 
 ```bash
-git clone https://github.com/<tu-org>/telegram-kb-bot.git
-cd telegram-kb-bot
+git clone https://github.com/<tu-org>/bot-telegram-bdc.git
+cd bot-telegram-bdc
 cp .env.example .env
 # Edita .env con tus credenciales (ver tabla de variables más abajo)
 
@@ -113,7 +113,7 @@ docker compose logs -f   # comprobar que arranca y clona la BdC sin errores
 Si todo va bien, verás en los logs algo como:
 
 ```
-BdC clonada por primera vez en ./kb.
+BdC clonada por primera vez en ./bdc.
 Bot arrancado. Esperando mensajes (polling)...
 ```
 
@@ -124,9 +124,9 @@ A partir de aquí, escríbele al bot en Telegram.
 | Variable | Descripción | Ejemplo |
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | Token del bot, dado por @BotFather | `123456:ABC-...` |
-| `KB_PATH` | Carpeta local donde se clona la BdC dentro del contenedor | `./kb` |
-| `KB_REPO_URL` | URL del repo de la BdC. Incluye `<PAT>@` si es privado | `https://<PAT>@github.com/org/bdc.git` |
-| `KB_PULL_INTERVAL_SECONDS` | Cada cuánto se sincroniza la BdC | `300` |
+| `BDC_PATH` | Carpeta local donde se clona la BdC dentro del contenedor | `./bdc` |
+| `BDC_REPO_URL` | URL del repo de la BdC. Incluye `<PAT>@` si es privado | `https://<PAT>@github.com/org/bdc.git` |
+| `BDC_PULL_INTERVAL_SECONDS` | Cada cuánto se sincroniza la BdC | `300` |
 | `LLM_PROVIDER` | `openai`, `anthropic` o `ugr` (compatible OpenAI) | `openai` |
 | `LLM_BASE_URL` | Endpoint base del proveedor | `https://api.openai.com/v1` |
 | `LLM_API_KEY` | API key del proveedor | `sk-...` |
@@ -163,7 +163,7 @@ git push
 ```
 
 El bot la recoge sola en el siguiente ciclo de sincronización
-(`KB_PULL_INTERVAL_SECONDS`, 5 min por defecto).
+(`BDC_PULL_INTERVAL_SECONDS`, 5 min por defecto).
 
 ## Cambiar de proveedor LLM
 
@@ -186,7 +186,7 @@ UGR tiene un formato distinto, solo hay que adaptar una función en
 docker compose ps              # estado del contenedor
 docker compose logs -f         # logs en tiempo real
 docker compose restart bot     # reinicio manual
-docker compose down            # parar todo (el volumen kb_data persiste)
+docker compose down            # parar todo (el volumen bdc_data persiste)
 docker compose exec bot bash   # entrar al contenedor para depurar
 ```
 
@@ -196,7 +196,7 @@ docker compose exec bot bash   # entrar al contenedor para depurar
 |---|---|---|
 | El contenedor se reinicia en bucle | Falta `TELEGRAM_BOT_TOKEN` o es inválido | Revisar `.env` |
 | Error de autenticación al clonar la BdC | PAT incorrecto, caducado o sin permisos | Regenerar el PAT con permiso `Contents: Read-only` sobre ese repo |
-| El bot responde "no tengo información suficiente" siempre | La BdC no tiene contenido relevante, o no se clonó | Revisar logs (`docker compose logs -f`) y el contenido de `KB_PATH` dentro del contenedor |
+| El bot responde "no tengo información suficiente" siempre | La BdC no tiene contenido relevante, o no se clonó | Revisar logs (`docker compose logs -f`) y el contenido de `BDC_PATH` dentro del contenedor |
 | Error llamando al LLM | API key incorrecta o `LLM_BASE_URL`/`LLM_MODEL` mal configurados | Revisar `.env` y probar el endpoint manualmente con `curl` |
 
 ## Roadmap

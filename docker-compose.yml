@@ -1,0 +1,28 @@
+# Cómo se ejecuta la imagen construida por el Dockerfile
+
+services:
+  bot:
+    # construye la imagen a partir del Dockerfile que se encuentra en la carpeta "."
+    build: .
+
+    # nombre del contenedor
+    container_name: bot-telegram-bdc
+
+    # Si hay un error o si se reinicia el servidor entero, Docker vuelve a levantar el contenedor
+    # -> bot se está ejecutando constantemente en background
+    restart: always
+
+    # Cargar variables de entorno de .env
+    env_file:
+      - .env
+
+    volumes:
+      # montar el volumen "bdc_data" en /app/bdc
+      # al ser volumen con nombre (y no carpeta), docker lo gestiona internamente
+      # aunque el contenedor se recree o se acutalice la imagen, la BdC clonada no se pierde y no hay que reclonar
+      - bdc_data:/app/bdc
+
+# Hay que declarar los volúmenes nombrados arriba
+# sino docker no sabría que "bdc_data" tiene que persistir entre reinicios
+volumes:
+  bdc_data:
