@@ -1,6 +1,10 @@
 """
 Bot de Telegram que usa una BdC y un LLM configurados en .env
 Pensado para ejecutarse de fondo continuamente.
+
+Construye el prompt: pregunta + fragmentos de la BdC + instrucción de responder solo a esa información
+Y devuelve la respuesta.
+
 """
 
 import logging     # Para registrar eventos y errores del bot
