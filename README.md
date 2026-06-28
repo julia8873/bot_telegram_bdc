@@ -189,12 +189,3 @@ docker compose exec bot bash   # entrar al contenedor para depurar
 | Error de autenticación al clonar la BdC | PAT incorrecto, caducado o sin permisos | Regenerar el PAT con permiso `Contents: Read-only` sobre ese repo |
 | El bot responde "no tengo información suficiente" siempre | La BdC no tiene contenido relevante, o no se clonó | Revisar logs (`docker compose logs -f`) y el contenido de `BDC_PATH` dentro del contenedor |
 | Error llamando al LLM | API key incorrecta o `LLM_BASE_URL`/`LLM_MODEL` mal configurados | Revisar `.env` y probar el endpoint manualmente con `curl` |
-
-## Roadmap
-
-- [ ] Sustituir la búsqueda por palabras clave en `retrieval.py` por
-      embeddings cuando la BdC crezca.
-- [ ] Métricas de evaluación (fidelidad, alucinaciones) — ver documento de
-      KPIs de la BdC.
-- [ ] Integración con el LLM de la UGR.
-- [ ] CI en GitHub Actions (lint + test al hacer push).
