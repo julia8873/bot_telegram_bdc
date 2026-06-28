@@ -13,6 +13,10 @@ import threading  # Crear hilos para ejecutar en paralelo
 import time       # Para funciones de pausa (sleep) entre sincronizaciones
 
 from dotenv import load_dotenv  # Carga variables desde el archivo .env al entorno.
+
+# Cargamos antes, sino puede que tenga valores antiguos
+load_dotenv(override=True)  # leer el archivo .env y cargarlo como variables de entorno
+
 from telegram import Update     # Representa una actualización (mensaje, etc.) recibida de Telegram.
 from telegram.ext import (
     Application,          # Clase principal que gestiona el ciclo de vida del bot.
@@ -25,7 +29,6 @@ from telegram.ext import (
 import llm_client  # Encapsular las llamadas al LLM
 import retrieval   # Buscar en la BDC
 
-load_dotenv()  # leer el archivo .env y cargarlo como variables de entorno
 
 # configurar el formato y los mensajes de log
 logging.basicConfig(
@@ -46,7 +49,7 @@ SYSTEM_PROMPT = (
     "Eres un asistente que responde preguntas únicamente a partir del "
     "contexto proporcionado, extraído de la Base de Conocimiento. "   # Restringe las respuestas al contexto dado.
     "Si la respuesta no está en el contexto, dilo explícitamente en "  # Evita que el LLM invente información.
-    "lugar de inventar información."
+    "lugar de inventar información en una frase."
 )
 
 

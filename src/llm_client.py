@@ -48,8 +48,8 @@ def _generate_openai_compatible(prompt: str, system_prompt: str) -> str:
     """
 
     # completions -> dado texto de entrada, genera la continuación
-
-    url = f"{LLM_BASE_URL}/chat/completions" # contruir URL del endpoint con la ruta estándar de openAI
+    # hacemos strip pq sino salían dos //
+    url = f"{LLM_BASE_URL.rstrip('/')}/chat/completions" # contruir URL del endpoint con la ruta estándar de openAI
 
     headers = {
         "Authorization": f"Bearer {LLM_API_KEY}", # Autenticación: Token en cabecera HTTP
@@ -83,7 +83,7 @@ def _generate_openai_compatible(prompt: str, system_prompt: str) -> str:
 # adaptada para el formato de la API de Anthropic
 def _generate_anthropic(prompt: str, system_prompt: str) -> str:
 
-    url = f"{LLM_BASE_URL}/messages"  # Endpoint de Anthropic: /messages en lugar de /chat/completions.
+    url = f"{LLM_BASE_URL.rstrip('/')}/messages"  # Endpoint de Anthropic: /messages en lugar de /chat/completions.
 
     headers = {
         "x-api-key": LLM_API_KEY,           # Anthropic usa "x-api-key" en lugar de "Authorization: Bearer".
