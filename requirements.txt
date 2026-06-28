@@ -1,4 +1,11 @@
+# Framework del bot de Telegram: polling, comandos, envío de mensajes.
 python-telegram-bot==21.4
+
+# Carga las variables de .env (token, API keys) como variables de entorno.
 python-dotenv==1.0.1
+
+# Llamadas HTTP al LLM configurado (OpenAI/Anthropic/UGR) desde llm_client.py.
 requests==2.32.3
+
+# Ejecuta git clone/pull desde Python para sincronizar la BdC (bot.py).
 GitPython==3.1.43
