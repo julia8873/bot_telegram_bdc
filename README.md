@@ -76,6 +76,19 @@ telegram-kb-bot/
 ├── .env.example
 └── .gitignore
 ```
+## Dependencias
+
+Definidas en `requirements.txt`, con versión fijada para reproducibilidad
+(todo el mundo instala exactamente lo mismo, y el contenedor Docker siempre
+construye igual):
+
+| Librería | Para qué se usa |
+|---|---|
+| [`python-telegram-bot`](https://pypi.org/project/python-telegram-bot/) | Conecta con la API de Telegram: recibe mensajes (polling), gestiona comandos y envía respuestas. Es la base de `bot.py`. |
+| [`python-dotenv`](https://pypi.org/project/python-dotenv/) | Carga las variables de `.env` (token, API keys...) como variables de entorno del proceso. |
+| [`requests`](https://pypi.org/project/requests/) | Llamadas HTTP al LLM configurado (OpenAI/Anthropic/UGR), usado en `llm_client.py`. |
+| [`GitPython`](https://pypi.org/project/GitPython/) | Ejecuta `git clone`/`git pull` desde Python para sincronizar la BdC, usado en `bot.py`. |
+
 
 ## Requisitos previos
 
