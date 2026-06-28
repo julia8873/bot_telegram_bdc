@@ -9,15 +9,15 @@ Pensado para estar ejecutándose en background constantemente en Docker.
 - [Visión general](#visión-general)
 - [Arquitectura](#arquitectura)
 - [Estructura del repo](#estructura-del-repo)
+- [Dependencias](#dependencias)
 - [Requisitos previos](#requisitos-previos)
-- [Puesta en marcha](#puesta-en-marcha)
+- [Cómo Ejecutar](#como-ejecutar)
 - [Variables de entorno](#variables-de-entorno)
 - [Cómo funciona una consulta](#cómo-funciona-una-consulta)
 - [Actualizar la Base de Conocimiento](#actualizar-la-base-de-conocimiento)
 - [Cambiar de proveedor LLM](#cambiar-de-proveedor-llm)
 - [Comandos útiles](#comandos-útiles)
 - [Troubleshooting](#troubleshooting)
-- [Roadmap](#roadmap)
 
 ---
 
