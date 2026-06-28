@@ -18,6 +18,7 @@ Pensado para estar ejecutándose en background constantemente en Docker.
 - [Cambiar de proveedor LLM](#cambiar-de-proveedor-llm)
 - [Comandos útiles](#comandos-útiles)
 - [Troubleshooting](#troubleshooting)
+- [Tests](#tests)
 
 ---
 
@@ -189,3 +190,25 @@ docker compose exec bot bash   # entrar al contenedor para depurar
 | Error de autenticación al clonar la BdC | PAT incorrecto, caducado o sin permisos | Regenerar el PAT con permiso `Contents: Read-only` sobre ese repo |
 | El bot responde "no tengo información suficiente" siempre | La BdC no tiene contenido relevante, o no se clonó | Revisar logs (`docker compose logs -f`) y el contenido de `BDC_PATH` dentro del contenedor |
 | Error llamando al LLM | API key incorrecta o `LLM_BASE_URL`/`LLM_MODEL` mal configurados | Revisar `.env` y probar el endpoint manualmente con `curl` |
+
+
+## Tests
+
+Los tests cubren `retrieval.py`, `llm_client.py` y `bot.py` sin hacer llamadas reales a Telegram, OpenAI ni GitHub (mockeado).
+
+### Instalar dependencias de test
+
+pip install pytest pytest-asyncio
+
+
+### Ejecutar
+
+python -m pytest tests/ -v
+
+
+### Estructura
+
+tests/
+|--- test_retrieval.py   # tokenización, exclusión OKF, búsqueda por palabras clave
+|--- test_llm_client.py  # router de proveedores, construcción de prompts, errores HTTP
+|--- test_bot.py         # sync de BdC, handle_message, fallback de errores
