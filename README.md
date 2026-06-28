@@ -112,7 +112,7 @@ Si todo va bien, verás en los logs algo como:
 
 ```
 BdC clonada por primera vez en ./bdc.
-Bot arrancado. Esperando mensajes (polling)...
+Bot iniciado. Esperando mensajes (polling)...
 ```
 
 Deberías de poder usar el bot de Telegram.
