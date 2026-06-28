@@ -78,13 +78,11 @@ bot-telegram-bdc/
 ```
 ## Dependencias
 
-Definidas en `requirements.txt`, con versión fijada para reproducibilidad
-(todo el mundo instala exactamente lo mismo, y el contenedor Docker siempre
-construye igual):
+Definidas en `requirements.txt`.
 
 | Librería | Para qué se usa |
 |---|---|
-| [`python-telegram-bot`](https://pypi.org/project/python-telegram-bot/) | Conecta con la API de Telegram: recibe mensajes (polling), gestiona comandos y envía respuestas. Es la base de `bot.py`. |
+| [`python-telegram-bot`](https://pypi.org/project/python-telegram-bot/) | Conecta con la API de Telegram: recibe mensajes (polling), gestiona comandos y envía respuestas.|
 | [`python-dotenv`](https://pypi.org/project/python-dotenv/) | Carga las variables de `.env` (token, API keys...) como variables de entorno del proceso. |
 | [`requests`](https://pypi.org/project/requests/) | Llamadas HTTP al LLM configurado (OpenAI/Anthropic/UGR), usado en `llm_client.py`. |
 | [`GitPython`](https://pypi.org/project/GitPython/) | Ejecuta `git clone`/`git pull` desde Python para sincronizar la BdC, usado en `bot.py`. |
@@ -95,7 +93,7 @@ construye igual):
 - Docker y Docker Compose instalados en el servidor.
 - Un bot de Telegram creado vía [@BotFather](https://t.me/BotFather) (token).
 - Acceso al repo de GitHub de la BdC (URL, y un Personal Access Token de solo lectura si es privado).
-- Credenciales de algún LLM para las pruebas iniciales (OpenAI, Anthropic...) y, más adelante, del LLM de la UGR.
+- Credenciales de algún LLM.
 
 ## Cómo Ejecutar
 
@@ -117,7 +115,7 @@ BdC clonada por primera vez en ./bdc.
 Bot arrancado. Esperando mensajes (polling)...
 ```
 
-A partir de aquí, escríbele al bot en Telegram.
+Deberías de poder usar el bot de Telegram.
 
 ## Variables de entorno
 
@@ -132,9 +130,6 @@ A partir de aquí, escríbele al bot en Telegram.
 | `LLM_API_KEY` | API key del proveedor | `sk-...` |
 | `LLM_MODEL` | Modelo a usar | `gpt-4o-mini` |
 | `RETRIEVAL_TOP_K` | Nº de fragmentos de la BdC usados como contexto por consulta | `4` |
-
-`.env` nunca se sube a GitHub (está en `.gitignore`); solo existe en el
-servidor donde corre el contenedor.
 
 ## Cómo funciona una consulta
 
@@ -162,8 +157,7 @@ git commit -m "Actualiza guía docente de X"
 git push
 ```
 
-El bot la recoge sola en el siguiente ciclo de sincronización
-(`BDC_PULL_INTERVAL_SECONDS`, 5 min por defecto).
+El bot la recoge sola en el siguiente ciclo de sincronización (`BDC_PULL_INTERVAL_SECONDS`, 5 min por defecto).
 
 ## Cambiar de proveedor LLM
 
@@ -174,11 +168,8 @@ Editar 4 variables en `.env` (`LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_API_KEY`,
 docker compose up -d --force-recreate
 ```
 
-No hace falta tocar ni reconstruir código: `llm_client.py` ya soporta
-cualquier endpoint compatible con el formato de OpenAI (la mayoría de LLMs
-auto-hospedados, y probablemente el de la UGR, lo son). Si el endpoint de la
-UGR tiene un formato distinto, solo hay que adaptar una función en
-`llm_client.py`.
+No hace falta tocar ni reconstruir código: `llm_client.py` ya soporta cualquier endpoint compatible con el formato de OpenAI.
+Si el endpoint de la UGR tiene un formato distinto, solo hay que adaptar una función en `llm_client.py`.
 
 ## Comandos útiles
 
