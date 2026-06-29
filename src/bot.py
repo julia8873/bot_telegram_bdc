@@ -7,27 +7,36 @@ Y devuelve la respuesta.
 
 Comandos disponibles:
   /start      -> mensaje de bienvenida
+  /help       -> panel con todos los comandos disponibles
   /actualizar -> fuerza un git pull de la BdC inmediatamente
   /ficheros   -> lista todos los archivos .md cargados en la BdC
+  /contenido  -> muestra el contenido completo de un archivo de la BdC
   /debug      -> muestra la última pregunta y el contexto enviado al LLM
+  /error      -> muestra el detalle técnico del último error producido
 """
 
+import asyncio     # Para ejecutar el LLM en un hilo y no bloquear el bot, y para el aviso de "escribiendo..."
 import logging     # Para registrar eventos y errores del bot
 import os         # Leer variables de entorno y rutas del sistema
 import threading  # Crear hilos para ejecutar en paralelo
 import time       # Para funciones de pausa (sleep) entre sincronizaciones
+import traceback  # Para capturar el detalle completo de las excepciones (comando /error)
+from datetime import datetime  # Para poner fecha/hora a los errores registrados
 
 from dotenv import load_dotenv  # Carga variables desde el archivo .env al entorno.
 
 # Cargamos antes, sino puede que tenga valores antiguos
 load_dotenv(override=True)  # leer el archivo .env y cargarlo como variables de entorno
 
-from telegram import Update     # Representa una actualización (mensaje, etc.) recibida de Telegram.
+from telegram import Update, LinkPreviewOptions  # Update: actualización recibida. LinkPreviewOptions: para desactivar las "tarjetas" de vista previa de enlaces.
+from telegram.constants import ChatAction  # Para mostrar el aviso de "escribiendo..." en Telegram
+from telegram.request import HTTPXRequest  # Para poder ajustar los timeouts de conexión a Telegram
 from telegram.ext import (
     Application,          # Clase principal que gestiona el ciclo de vida del bot.
     CommandHandler,       # Para comandos tipo /start, /help, etc.
     MessageHandler,       # Para mensajes normales de texto.
     ContextTypes,         # Contexto de cada handler.
+    Defaults,              # Para fijar opciones por defecto (aquí: desactivar vista previa de enlaces) en todos los envíos
     filters,              # Filtros para seleccionar qué mensajes procesa cada handler.
 )
 
@@ -60,6 +69,9 @@ SYSTEM_PROMPT = (
 # Almacena la última pregunta y contexto para el comando /debug
 # Se actualiza en cada handle_message
 _ultimo_debug: dict = {"pregunta": None, "contexto": None}
+
+# Almacena el último error producido al llamar al LLM, para el comando /error
+_ultimo_error: dict = {"momento": None, "pregunta": None, "detalle": None}
 
 
 # Sincronizar la BDC
@@ -94,6 +106,20 @@ def pull_bdc_loop():
         sync_bdc_once()
 
 
+async def _aviso_escribiendo_en_bucle(chat_id: int, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Repite el aviso de 'escribiendo...' de Telegram cada 4 segundos.
+    Telegram solo muestra esta animación ~5s, así que hay que renovarla
+    mientras dure la espera al LLM. Se cancela en cuanto el LLM responde.
+    """
+    try:
+        while True:
+            await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            await asyncio.sleep(4)
+    except asyncio.CancelledError:
+        pass  # esperado: se cancela en cuanto llega la respuesta del LLM
+
+
 # Handler para procesar cada mensaje recibido por el bot
 # async para poder usar await para que no se bloquee el bot mientras se espera para la confirmación HTTP de Telegram
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -121,29 +147,86 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Indica que no tienes información suficiente para responder con certeza."  # Que indique que no se ha encontrado contexto relevante
         )
 
+    mensaje_espera = None  # puede quedarse en None si Telegram no responde al enviarlo
+    aviso_task = None
+
     try:
-        answer = llm_client.generate(prompt, system_prompt=SYSTEM_PROMPT)
-    except Exception as e:
+        # Mensaje editable de "cargando" + aviso nativo de "escribiendo..." en bucle,
+        # para que el usuario no se quede esperando sin saber si el bot sigue vivo
+        mensaje_espera = await update.message.reply_text("⏳ Generando respuesta...")
+        aviso_task = asyncio.create_task(
+            _aviso_escribiendo_en_bucle(update.effective_chat.id, context)
+        )
+
+        # to_thread: la llamada al LLM es bloqueante (usa requests), así que la
+        # lanzamos en un hilo aparte para no congelar el bot mientras se espera
+        answer = await asyncio.to_thread(llm_client.generate, prompt, SYSTEM_PROMPT)
+
+    except Exception:
         logger.exception("Error al llamar al LLM")
-        answer = "Se ha producido un error al generar la respuesta. Inténtalo de nuevo."
-    
-    # Telegram tiene un límite de 4096 caracteres por mensaje
+        # Guardamos el detalle completo para que /error pueda mostrarlo
+        _ultimo_error["momento"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        _ultimo_error["pregunta"] = question
+        _ultimo_error["detalle"] = traceback.format_exc()
+        answer = (
+            "⚠️ Se ha producido un error al generar la respuesta. "
+            "Usa /error para ver el detalle técnico."
+        )
+    finally:
+        if aviso_task is not None:
+            aviso_task.cancel()  # ya tenemos respuesta (o error): paramos el aviso
+
+    # Enviar la respuesta final. Separado en su propio try/except: si Telegram
+    # falló al crear "mensaje_espera" (p. ej. timeout de red), no editamos nada,
+    # mandamos un mensaje nuevo. Si esto también falla, no hay más que podamos
+    # hacer desde aquí (es un problema de conectividad con Telegram, no del bot).
     MAX_LEN = 4096
-    if len(answer) <= MAX_LEN:
-        await update.message.reply_text(answer)  # await: cede el control mientras Telegram confirma el envío (HTTP)
-    else:
-        for i in range(0, len(answer), MAX_LEN):  # partir la respuesta en trozos de 4096 y enviar uno a uno
-            await update.message.reply_text(answer[i:i + MAX_LEN])
+    try:
+        if mensaje_espera is not None:
+            await mensaje_espera.edit_text(answer[:MAX_LEN])
+            for i in range(MAX_LEN, len(answer), MAX_LEN):  # el resto (si lo hay), en mensajes nuevos
+                await update.message.reply_text(answer[i:i + MAX_LEN])
+        else:
+            for i in range(0, len(answer), MAX_LEN):
+                await update.message.reply_text(answer[i:i + MAX_LEN])
+    except Exception:
+        logger.exception("No se pudo enviar la respuesta al chat de Telegram")
+        _ultimo_error["momento"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        _ultimo_error["pregunta"] = question
+        _ultimo_error["detalle"] = traceback.format_exc()
+
+
+async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Red de seguridad: captura cualquier excepción no controlada en cualquier
+    handler (no solo handle_message), para que quede registrada en /error
+    en vez de perderse silenciosamente en los logs.
+    """
+    logger.error("Excepción no controlada", exc_info=context.error)
+    _ultimo_error["momento"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    _ultimo_error["pregunta"] = "(error fuera de una pregunta normal, ver /error)"
+    _ultimo_error["detalle"] = "".join(
+        traceback.format_exception(type(context.error), context.error, context.error.__traceback__)
+    )
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler para el comando /start"""
     await update.message.reply_text(
         "Hola, soy tu asistente de la BdC. Pregúntame lo que necesites.\n\n"
-        "Comandos disponibles:\n"
+        "Si necesitas ver el panel con todos los comandos disponibles, escribe /help."
+    )
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler para el comando /help: panel con todos los comandos disponibles"""
+    await update.message.reply_text(
+        "Comandos disponibles:\n\n"
         "/actualizar -> actualiza el contenido de la BdC desde el repositorio\n"
         "/ficheros   -> muestra los archivos cargados en la BdC\n"
-        "/debug      -> muestra la última pregunta y el contexto enviado al LLM"
+        "/contenido <archivo> -> muestra el contenido de un archivo de la BdC\n"
+        "/debug      -> muestra la última pregunta y el contexto enviado al LLM\n"
+        "/error      -> muestra el detalle técnico del último error producido"
     )
 
 # -------------------------------------------------------------------------------------------------------
@@ -173,10 +256,55 @@ async def ficheros_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("No hay archivos cargados en la BdC.")
         return
 
-    # Construir la lista con solo las rutas, sin el contenido
-    lista = "\n".join(f"• {ruta}" for ruta, _ in sorted(files))
-    respuesta = f"Archivos cargados en la BdC ({len(files)}):\n\n{lista}"
-    await update.message.reply_text(respuesta)
+    lista = "\n".join(f"• <code>{ruta}</code>" for ruta, _ in sorted(files))
+    
+    respuesta = (
+        f"Archivos cargados en la BdC ({len(files)}):\n\n"
+        f"{lista}\n\n"
+        f"Usa /contenido &lt;nombre&gt; para ver el contenido de uno."
+    )
+    
+    # Se especifica parse_mode="HTML" al enviar el mensaje
+    await update.message.reply_text(respuesta, parse_mode="HTML")
+
+async def contenido_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muestra el contenido completo de un archivo de la BdC, buscándolo por nombre (o parte del nombre)"""
+    if not context.args:  # context.args = palabras después del comando, ej. /contenido T1.md -> ["T1.md"]
+        await update.message.reply_text(
+            "Uso: /contenido <nombre_archivo>\n"
+            "Ejemplo: /contenido T1.md\n\n"
+            "Usa /ficheros para ver los nombres exactos disponibles."
+        )
+        return
+
+    busqueda = " ".join(context.args).lower()  # admite nombres con espacios
+    files = retrieval._load_bdc_files()  # [(ruta_relativa, contenido_sin_frontmatter), ...]
+
+    # Coincidencia por nombre de archivo o por ruta completa (no sensible a mayúsculas)
+    encontrados = [(ruta, contenido) for ruta, contenido in files if busqueda in ruta.lower()]
+
+    if not encontrados:
+        await update.message.reply_text(
+            f"No se ha encontrado ningún archivo que coincida con '{busqueda}'. "
+            f"Usa /ficheros para ver la lista exacta."
+        )
+        return
+
+    if len(encontrados) > 1:
+        # demasiadas coincidencias -> pedimos que sea más concreto, mostrando cuáles chocan
+        lista = "\n".join(f"• {ruta}" for ruta, _ in encontrados)
+        await update.message.reply_text(
+            f"Hay varios archivos que coinciden con '{busqueda}', sé más concreto:\n{lista}"
+        )
+        return
+
+    ruta, contenido = encontrados[0]
+    texto = f"📄 {ruta}\n\n{contenido.strip()}"
+
+    # Telegram tiene límite de 4096 caracteres por mensaje: partimos en trozos si hace falta
+    MAX_LEN = 4096
+    for i in range(0, len(texto), MAX_LEN):
+        await update.message.reply_text(texto[i:i + MAX_LEN])
 
 
 async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -195,6 +323,29 @@ async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(respuesta[:MAX_LEN], parse_mode="Markdown")
 
 
+async def error_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muestra el detalle técnico (traceback) del último error producido, si lo hay"""
+    if _ultimo_error["detalle"] is None:  # no se ha producido ningún error todavía
+        await update.message.reply_text("No se ha registrado ningún error todavía. ✅")
+        return
+
+    cabecera = (
+        f"*Último error* ({_ultimo_error['momento']})\n"
+        f"*Pregunta:* {_ultimo_error['pregunta']}\n\n"
+    )
+    # Markdown con ``` para que el traceback se vea con formato de código monoespaciado
+    cuerpo = f"```\n{_ultimo_error['detalle']}\n```"
+
+    # Telegram tiene límite de 4096 caracteres; recortamos el traceback si hace falta
+    # (nos quedamos con el final, que suele tener la línea del error real)
+    MAX_LEN = 4096
+    espacio_disponible = MAX_LEN - len(cabecera) - len("```\n\n```")
+    if len(_ultimo_error["detalle"]) > espacio_disponible:
+        cuerpo = f"```\n...(recortado)...\n{_ultimo_error['detalle'][-espacio_disponible:]}\n```"
+
+    await update.message.reply_text(cabecera + cuerpo, parse_mode="Markdown")
+
+
 def main():
     if not TELEGRAM_BOT_TOKEN:
         raise RuntimeError("Falta el TELEGRAM_BOT_TOKEN en el fichero .env")
@@ -206,16 +357,43 @@ def main():
     if BDC_REPO_URL:
         threading.Thread(target=pull_bdc_loop, daemon=True).start()
 
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()  # Crear la aplicación del bot con el token
+    # Timeouts por defecto de la librería son cortos (~5s); si la conexión hacia
+    # Telegram es lenta (p. ej. por pasar a través de la VPN de la UGR) pero no
+    # está bloqueada, esto evita falsos "TimedOut" por pura lentitud de red.
+    request = HTTPXRequest(
+        connect_timeout=20.0,
+        read_timeout=20.0,
+        write_timeout=20.0,
+        pool_timeout=20.0,
+    )
+    # Desactiva la "tarjeta" de vista previa que Telegram añade automáticamente
+    # cuando un mensaje contiene una URL (puede mostrar contenido de una web
+    # totalmente ajena a la respuesta, ej. enlaces dentro de los .md de la BdC)
+    defaults = Defaults(link_preview_options=LinkPreviewOptions(is_disabled=True))
+
+    application = (
+        Application.builder()
+        .token(TELEGRAM_BOT_TOKEN)
+        .request(request)
+        .defaults(defaults)
+        .build()
+    )  # Crear la aplicación del bot con el token, los timeouts ajustados y la vista previa desactivada
 
     # Registrar handlers de comandos
     application.add_handler(CommandHandler("start",      start_command))
+    application.add_handler(CommandHandler("help",       help_command))
     application.add_handler(CommandHandler("actualizar", actualizar_command))
     application.add_handler(CommandHandler("ficheros",   ficheros_command))
+    application.add_handler(CommandHandler("contenido",  contenido_command))
     application.add_handler(CommandHandler("debug",      debug_command))
+    application.add_handler(CommandHandler("error",      error_command))
 
     # Para las preguntas de usuario — excluimos comandos y mensajes no textuales
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    # Red de seguridad: cualquier excepción no controlada en cualquier handler
+    # queda registrada para /error en vez de perderse en los logs
+    application.add_error_handler(global_error_handler)
 
     logger.info("Bot iniciado. Esperando mensajes (polling)...")
     application.run_polling()  # consultar Telegram periódicamente para nuevos mensajes
