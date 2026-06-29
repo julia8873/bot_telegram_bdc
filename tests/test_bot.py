@@ -19,28 +19,30 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 # --------------------------------------------------------------
 class TestSyncBdcOnce:
 
+    # Verifica que sin BDC_REPO_URL configurada la función termina sin errores ni llamadas a git
     def test_sin_url_no_hace_nada(self):
         with patch.dict("os.environ", {"BDC_REPO_URL": ""}):
             import importlib, bot
             importlib.reload(bot)
-            # No debe lanzar ningún error aunque no haya git
             bot.sync_bdc_once()
 
+    # Verifica que si la carpeta bdc no existe se llama a git clone para crearla
     def test_clona_si_no_existe(self, tmp_path):
         env = {"BDC_REPO_URL": "https://github.com/ejemplo/repo.git",
-               "BDC_PATH": str(tmp_path / "bdc")}
+            "BDC_PATH": str(tmp_path / "bdc")}
         with patch.dict("os.environ", env):
             import importlib, bot
             importlib.reload(bot)
-            mock_repo = MagicMock()
-            with patch("git.Repo.clone_from") as mock_clone:
+            with patch("os.path.exists", return_value=False), \
+                patch("git.Repo") as mock_git:
                 bot.sync_bdc_once()
-                mock_clone.assert_called_once()
+                mock_git.clone_from.assert_called_once()
 
+    # Verifica que si la carpeta bdc ya existe se llama a git pull en vez de clone
     def test_hace_pull_si_ya_existe(self, tmp_path):
         bdc = tmp_path / "bdc"
         bdc.mkdir()
-        (bdc / ".git").mkdir()  # simula que ya hay un repo clonado
+        (bdc / ".git").mkdir()
 
         env = {"BDC_REPO_URL": "https://github.com/ejemplo/repo.git",
                "BDC_PATH": str(bdc)}
@@ -52,6 +54,7 @@ class TestSyncBdcOnce:
                 bot.sync_bdc_once()
                 mock_repo.remotes.origin.pull.assert_called_once()
 
+    # Verifica que un fallo de git no detiene el bot sino que se captura y se registra como warning
     def test_error_git_no_detiene_el_bot(self, tmp_path):
         env = {"BDC_REPO_URL": "https://github.com/ejemplo/repo.git",
                "BDC_PATH": str(tmp_path / "bdc")}
@@ -59,15 +62,15 @@ class TestSyncBdcOnce:
             import importlib, bot
             importlib.reload(bot)
             with patch("git.Repo.clone_from", side_effect=Exception("sin red")):
-                # No debe propagar la excepción
                 bot.sync_bdc_once()
 
 
 # --------------------------------------------------------------
 #  handle_message
 # --------------------------------------------------------------
+
+# Crea un objeto Update falso con el texto dado para no depender de Telegram
 def _make_update(texto: str) -> MagicMock:
-    """Crea un objeto Update falso con el texto dado."""
     update = MagicMock()
     update.message.text = texto
     update.message.reply_text = AsyncMock()
@@ -172,6 +175,7 @@ class TestHandleMessage:
 @pytest.mark.asyncio
 class TestStartCommand:
 
+    # Verifica que el comando /start devuelve un mensaje de bienvenida no vacío
     async def test_responde_con_bienvenida(self):
         import importlib, bot
         importlib.reload(bot)
@@ -181,4 +185,4 @@ class TestStartCommand:
 
         update.message.reply_text.assert_called_once()
         respuesta = update.message.reply_text.call_args.args[0]
-        assert len(respuesta) > 0  # responde algo
+        assert len(respuesta) > 0
