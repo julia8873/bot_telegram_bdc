@@ -186,3 +186,166 @@ class TestStartCommand:
         update.message.reply_text.assert_called_once()
         respuesta = update.message.reply_text.call_args.args[0]
         assert len(respuesta) > 0
+
+
+# --------------------------------------------------------------
+#  actualizar_command
+# --------------------------------------------------------------
+@pytest.mark.asyncio
+class TestActualizarCommand:
+ 
+    # Verifica que sin BDC_REPO_URL configurada el comando avisa de que no hay repo
+    async def test_sin_url_avisa_al_usuario(self):
+        import importlib, bot
+        importlib.reload(bot)
+        bot.BDC_REPO_URL = ""
+ 
+        update = _make_update("/actualizar")
+        await bot.actualizar_command(update, MagicMock())
+ 
+        respuesta = update.message.reply_text.call_args.args[0]
+        assert "no hay" in respuesta.lower() or "repositorio" in respuesta.lower()
+ 
+    # Verifica que con repo configurado llama a sync_bdc_once y confirma éxito al usuario
+    async def test_con_url_llama_a_sync_y_confirma(self):
+        import importlib, bot
+        importlib.reload(bot)
+        bot.BDC_REPO_URL = "https://github.com/ejemplo/repo.git"
+ 
+        update = _make_update("/actualizar")
+        with patch("bot.sync_bdc_once") as mock_sync:
+            await bot.actualizar_command(update, MagicMock())
+            mock_sync.assert_called_once()
+ 
+        # El último mensaje enviado debe confirmar que se actualizó
+        ultimo_mensaje = update.message.reply_text.call_args_list[-1].args[0]
+        assert "actualizada" in ultimo_mensaje.lower()
+ 
+    # Verifica que si sync_bdc_once falla el comando responde con mensaje de error
+    async def test_error_en_sync_responde_con_error(self):
+        import importlib, bot
+        importlib.reload(bot)
+        bot.BDC_REPO_URL = "https://github.com/ejemplo/repo.git"
+ 
+        update = _make_update("/actualizar")
+        with patch("bot.sync_bdc_once", side_effect=Exception("sin red")):
+            await bot.actualizar_command(update, MagicMock())
+ 
+        ultimo_mensaje = update.message.reply_text.call_args_list[-1].args[0]
+        assert "error" in ultimo_mensaje.lower()
+ 
+ 
+# --------------------------------------------------------------
+#  ficheros_command
+# --------------------------------------------------------------
+@pytest.mark.asyncio
+class TestFicherosCommand:
+ 
+    # Verifica que si la BdC está vacía el comando avisa de que no hay archivos
+    async def test_sin_ficheros_avisa_al_usuario(self):
+        import importlib, bot
+        importlib.reload(bot)
+ 
+        update = _make_update("/ficheros")
+        with patch("retrieval._load_bdc_files", return_value=[]):
+            await bot.ficheros_command(update, MagicMock())
+ 
+        respuesta = update.message.reply_text.call_args.args[0]
+        assert "no hay" in respuesta.lower()
+ 
+    # Verifica que los nombres de los archivos cargados aparecen en la respuesta
+    async def test_muestra_nombres_de_archivos(self):
+        import importlib, bot
+        importlib.reload(bot)
+ 
+        files = [
+            ("edo-primer-orden.md", "contenido 1"),
+            ("metodo-euler.md",     "contenido 2"),
+            ("ecuaciones-lineales.md", "contenido 3"),
+        ]
+        update = _make_update("/ficheros")
+        with patch("retrieval._load_bdc_files", return_value=files):
+            await bot.ficheros_command(update, MagicMock())
+ 
+        respuesta = update.message.reply_text.call_args.args[0]
+        assert "edo-primer-orden.md" in respuesta
+        assert "metodo-euler.md" in respuesta
+        assert "ecuaciones-lineales.md" in respuesta
+ 
+    # Verifica que el número de archivos cargados aparece en la respuesta
+    async def test_muestra_numero_de_archivos(self):
+        import importlib, bot
+        importlib.reload(bot)
+ 
+        files = [("nota1.md", "x"), ("nota2.md", "y")]
+        update = _make_update("/ficheros")
+        with patch("retrieval._load_bdc_files", return_value=files):
+            await bot.ficheros_command(update, MagicMock())
+ 
+        respuesta = update.message.reply_text.call_args.args[0]
+        assert "2" in respuesta
+ 
+ 
+# --------------------------------------------------------------
+#  debug_command
+# --------------------------------------------------------------
+@pytest.mark.asyncio
+class TestDebugCommand:
+ 
+    # Verifica que si no se ha procesado ninguna pregunta aún el comando lo indica
+    async def test_sin_preguntas_previas_avisa(self):
+        import importlib, bot
+        importlib.reload(bot)
+        bot._ultimo_debug = {"pregunta": None, "contexto": None}
+ 
+        update = _make_update("/debug")
+        await bot.debug_command(update, MagicMock())
+ 
+        respuesta = update.message.reply_text.call_args.args[0]
+        assert "ninguna pregunta" in respuesta.lower() or "aún" in respuesta.lower()
+ 
+    # Verifica que la última pregunta procesada aparece en la respuesta del comando
+    async def test_muestra_ultima_pregunta(self):
+        import importlib, bot
+        importlib.reload(bot)
+        bot._ultimo_debug = {
+            "pregunta": "¿Qué es el wronskiano?",
+            "contexto": "El wronskiano determina independencia lineal de soluciones."
+        }
+ 
+        update = _make_update("/debug")
+        await bot.debug_command(update, MagicMock())
+ 
+        respuesta = update.message.reply_text.call_args.args[0]
+        assert "wronskiano" in respuesta.lower()
+ 
+    # Verifica que el contexto enviado al LLM aparece en la respuesta del comando
+    async def test_muestra_contexto_enviado_al_llm(self):
+        import importlib, bot
+        importlib.reload(bot)
+        bot._ultimo_debug = {
+            "pregunta": "¿Qué es el método de Euler?",
+            "contexto": "El método de Euler aproxima soluciones avanzando en pasos h."
+        }
+ 
+        update = _make_update("/debug")
+        await bot.debug_command(update, MagicMock())
+ 
+        respuesta = update.message.reply_text.call_args.args[0]
+        assert "euler" in respuesta.lower()
+ 
+    # Verifica que _ultimo_debug se actualiza correctamente al procesar un mensaje
+    async def test_handle_message_actualiza_debug(self):
+        import importlib, bot
+        importlib.reload(bot)
+        bot._ultimo_debug = {"pregunta": None, "contexto": None}
+ 
+        update = _make_update("¿Qué es una EDO separable?")
+        contexto = "Una EDO separable se escribe como g(y)dy = f(x)dx."
+ 
+        with patch("retrieval.get_relevant_context", return_value=contexto), \
+             patch("llm_client.generate", return_value="ok"):
+            await bot.handle_message(update, MagicMock())
+ 
+        assert bot._ultimo_debug["pregunta"] == "¿Qué es una EDO separable?"
+        assert bot._ultimo_debug["contexto"] == contexto

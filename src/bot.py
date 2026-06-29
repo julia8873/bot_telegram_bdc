@@ -5,6 +5,11 @@ Pensado para ejecutarse de fondo continuamente.
 Construye el prompt: pregunta + fragmentos de la BdC + instrucción de responder solo a esa información
 Y devuelve la respuesta.
 
+Comandos disponibles:
+  /start      -> mensaje de bienvenida
+  /actualizar -> fuerza un git pull de la BdC inmediatamente
+  /ficheros   -> lista todos los archivos .md cargados en la BdC
+  /debug      -> muestra la última pregunta y el contexto enviado al LLM
 """
 
 import logging     # Para registrar eventos y errores del bot
@@ -33,7 +38,7 @@ import retrieval   # Buscar en la BDC
 # configurar el formato y los mensajes de log
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", # Formato: fecha, nombre, nivel, mensaje
-    level=logging.INFO, # Solo mostrar mensajes de mivel INFO o superior
+    level=logging.INFO, # Solo mostrar mensajes de nivel INFO o superior
 )
 logger = logging.getLogger("bot-telegram-bdc")  # crear logger con ese nombre
 
@@ -51,6 +56,10 @@ SYSTEM_PROMPT = (
     "Si la respuesta no está en el contexto, dilo explícitamente en "  # Evita que el LLM invente información.
     "lugar de inventar información en una frase."
 )
+
+# Almacena la última pregunta y contexto para el comando /debug
+# Se actualiza en cada handle_message
+_ultimo_debug: dict = {"pregunta": None, "contexto": None}
 
 
 # Sincronizar la BDC
@@ -94,8 +103,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context_text = retrieval.get_relevant_context(question) # buscar fragmentos relevantes en la BdC
 
-    # Crear prompt para pasárselo al LLM
+    # Guardar pregunta y contexto para /debug
+    _ultimo_debug["pregunta"] = question
+    _ultimo_debug["contexto"] = context_text if context_text else "(sin contexto relevante)"
 
+    # Crear prompt para pasárselo al LLM
     if context_text: # ha encontrado texto relevante
         prompt = (
             f"Contexto de la Base de Conocimiento:\n{context_text}\n\n"  # Inyecta el contexto recuperado.
@@ -115,16 +127,73 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Error al llamar al LLM")
         answer = "Se ha producido un error al generar la respuesta. Inténtalo de nuevo."
     
-    # await: cede el control mientras Telegram confirma el envío (HTTP)
-    await update.message.reply_text(answer)
+    # Telegram tiene un límite de 4096 caracteres por mensaje
+    MAX_LEN = 4096
+    if len(answer) <= MAX_LEN:
+        await update.message.reply_text(answer)  # await: cede el control mientras Telegram confirma el envío (HTTP)
+    else:
+        for i in range(0, len(answer), MAX_LEN):  # partir la respuesta en trozos de 4096 y enviar uno a uno
+            await update.message.reply_text(answer[i:i + MAX_LEN])
 
-# Handler para el comando /start.
-# Lo que se muestra cuando usuario hace /start
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler para el comando /start"""
     await update.message.reply_text(
-        "Hola, soy tu asistente de la BdC. Pregúntame lo que necesites"
+        "Hola, soy tu asistente de la BdC. Pregúntame lo que necesites.\n\n"
+        "Comandos disponibles:\n"
+        "/actualizar -> actualiza el contenido de la BdC desde el repositorio\n"
+        "/ficheros   -> muestra los archivos cargados en la BdC\n"
+        "/debug      -> muestra la última pregunta y el contexto enviado al LLM"
     )
+
+# -------------------------------------------------------------------------------------------------------
+#    Comandos
+# -------------------------------------------------------------------------------------------------------
+
+async def actualizar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fuerza un git pull de la BdC inmediatamente sin esperar al intervalo automático"""
+    if not BDC_REPO_URL:
+        await update.message.reply_text("No hay repositorio configurado en BDC_REPO_URL.")
+        return
+
+    await update.message.reply_text("Actualizando la BdC...")  # avisa antes de empezar, puede tardar
+    try:
+        sync_bdc_once()
+        await update.message.reply_text("BdC actualizada correctamente.")
+    except Exception as e:
+        logger.exception("Error al actualizar la BdC desde /actualizar")
+        await update.message.reply_text(f"Error al actualizar la BdC: {e}")
+
+
+async def ficheros_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lista todos los archivos .md actualmente cargados en la BdC"""
+    files = retrieval._load_bdc_files()  # devuelve [(ruta_relativa, contenido), ...]
+
+    if not files:
+        await update.message.reply_text("No hay archivos cargados en la BdC.")
+        return
+
+    # Construir la lista con solo las rutas, sin el contenido
+    lista = "\n".join(f"• {ruta}" for ruta, _ in sorted(files))
+    respuesta = f"Archivos cargados en la BdC ({len(files)}):\n\n{lista}"
+    await update.message.reply_text(respuesta)
+
+
+async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muestra la última pregunta recibida y el contexto que se envió al LLM"""
+    if _ultimo_debug["pregunta"] is None:  # todavía no se ha procesado ningún mensaje
+        await update.message.reply_text("Aún no se ha procesado ninguna pregunta.")
+        return
+
+    respuesta = (
+        f"*Última pregunta:*\n{_ultimo_debug['pregunta']}\n\n"
+        f"*Contexto enviado al LLM:*\n{_ultimo_debug['contexto']}"
+    )
+
+    # Telegram tiene límite de 4096 caracteres
+    MAX_LEN = 4096
+    await update.message.reply_text(respuesta[:MAX_LEN], parse_mode="Markdown")
+
 
 def main():
     if not TELEGRAM_BOT_TOKEN:
@@ -138,10 +207,15 @@ def main():
         threading.Thread(target=pull_bdc_loop, daemon=True).start()
 
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()  # Crear la aplicación del bot con el token
-    application.add_handler(CommandHandler("start", start_command)) # Registrar el handler de /start
-    # Para las preguntas de usuario, las mandamos a la función handle_message
-    # Filtramos lo que no sea texto (eg quitamos [Audio], [Video]) y tampoco consideramos los comandos como "/start"
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)) # Registra el handler para cualquier mensaje de texto que no sea un comando
+
+    # Registrar handlers de comandos
+    application.add_handler(CommandHandler("start",      start_command))
+    application.add_handler(CommandHandler("actualizar", actualizar_command))
+    application.add_handler(CommandHandler("ficheros",   ficheros_command))
+    application.add_handler(CommandHandler("debug",      debug_command))
+
+    # Para las preguntas de usuario — excluimos comandos y mensajes no textuales
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Bot iniciado. Esperando mensajes (polling)...")
     application.run_polling()  # consultar Telegram periódicamente para nuevos mensajes
