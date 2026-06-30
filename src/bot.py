@@ -6,13 +6,49 @@ Construye el prompt: pregunta + fragmentos de la BdC + instrucción de responder
 Y devuelve la respuesta.
 
 Comandos disponibles:
-  /start      -> mensaje de bienvenida
-  /help       -> panel con todos los comandos disponibles
-  /actualizar -> fuerza un git pull de la BdC inmediatamente
-  /ficheros   -> lista todos los archivos .md cargados en la BdC
-  /contenido  -> muestra el contenido completo de un archivo de la BdC
-  /debug      -> muestra la última pregunta y el contexto enviado al LLM
-  /error      -> muestra el detalle técnico del último error producido
+    /start      -> mensaje de bienvenida
+    /help       -> panel con todos los comandos disponibles
+    /actualizar -> fuerza un git pull de la BdC inmediatamente
+    /ficheros   -> lista todos los archivos .md cargados en la BdC (procesados)
+    /ficheros (raw)
+    /contenido  -> muestra el contenido completo de un archivo de la BdC
+    /debug      -> muestra la última pregunta y el contexto enviado al LLM
+    /error      -> muestra el detalle técnico del último error producido
+
+    - crear nota de voz y que se ingeste en la bdc
+    
+    Estudiante:
+    - generar preguntas con sus respuestas para repasar (flashcards)
+        - calificar las respuestas de las interacciones del estudiante
+        - IMPORTANTE: trazabilidad del proceso de aprendizaje
+            - como profesor, saber si el estudiante sabe llegar a la información o cómo ha llegado a ella
+            - permitir hacerlo a escala (Bolonia) y poder seguir y examinar el progreso
+            - no solo ver las interacciones sino también cómo agrega el conocimiento
+            - puedes repasar lo que quieras, no se debe penalizar. Valoramos que cuando se hagan preguntas, 
+                al final sepas contestar todas
+            - con evaluación constante, no debe rentar copiar, conllevará un proceso similar a aprender.
+
+    - (proponer ejercicios o enviar ejercicios para corregir)
+    - resumen con trazabilidad
+        tampering (q firmen cada interacción, al hacer commit se firmará con huella)
+            Se quedarían en un repo y a lo mejor en un servidor centralizado -> tener trazabilidad accesible para el profesor
+
+        
+    El profesor establece la guía didáctica como base de conocimiento pero es el estudiante el que la desarrolla
+    Y arrastra en el plan de estudios, puediendo relacionar conceptos previos y ver si tiene alguna carencia.
+
+    El profesor evaluará la huella que deja el estudiante aprendiendo y se podría escalar a un agente que filtrara
+    
+    Otras interacciones como estudiante reflejadas en métricas:
+    - Revisiones a la bdc, a la propuesta de curación de contenido
+    - número de ejercicios/pruebas hechas
+    - Resultados con los tests
+    - Número de interacciones con el bot
+    - Número de fuentes en RAW (las que meta el estudiante)
+
+    Profesor interactúe con otro bot y pueda sacar gráficas y estadísitcas generales o individuales
+    
+
 """
 
 import asyncio     # Para ejecutar el LLM en un hilo y no bloquear el bot, y para el aviso de "escribiendo..."
@@ -28,7 +64,7 @@ from dotenv import load_dotenv  # Carga variables desde el archivo .env al entor
 # Cargamos antes, sino puede que tenga valores antiguos
 load_dotenv(override=True)  # leer el archivo .env y cargarlo como variables de entorno
 
-from telegram import Update, LinkPreviewOptions  # Update: actualización recibida. LinkPreviewOptions: para desactivar las "tarjetas" de vista previa de enlaces.
+from telegram import Update, LinkPreviewOptions
 from telegram.constants import ChatAction  # Para mostrar el aviso de "escribiendo..." en Telegram
 from telegram.request import HTTPXRequest  # Para poder ajustar los timeouts de conexión a Telegram
 from telegram.ext import (
@@ -36,7 +72,7 @@ from telegram.ext import (
     CommandHandler,       # Para comandos tipo /start, /help, etc.
     MessageHandler,       # Para mensajes normales de texto.
     ContextTypes,         # Contexto de cada handler.
-    Defaults,              # Para fijar opciones por defecto (aquí: desactivar vista previa de enlaces) en todos los envíos
+    Defaults,             # Para fijar opciones por defecto (aquí: desactivar vista previa de enlaces) en todos los envíos
     filters,              # Filtros para seleccionar qué mensajes procesa cada handler.
 )
 
@@ -151,9 +187,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     aviso_task = None
 
     try:
-        # Mensaje editable de "cargando" + aviso nativo de "escribiendo..." en bucle,
+        # Mensaje editable de "cargando" + "escribiendo..." en bucle,
         # para que el usuario no se quede esperando sin saber si el bot sigue vivo
-        mensaje_espera = await update.message.reply_text("⏳ Generando respuesta...")
+        mensaje_espera = await update.message.reply_text("Generando respuesta...")
         aviso_task = asyncio.create_task(
             _aviso_escribiendo_en_bucle(update.effective_chat.id, context)
         )
@@ -169,7 +205,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _ultimo_error["pregunta"] = question
         _ultimo_error["detalle"] = traceback.format_exc()
         answer = (
-            "⚠️ Se ha producido un error al generar la respuesta. "
+            "Se ha producido un error al generar la respuesta. "
             "Usa /error para ver el detalle técnico."
         )
     finally:
@@ -299,7 +335,7 @@ async def contenido_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     ruta, contenido = encontrados[0]
-    texto = f"📄 {ruta}\n\n{contenido.strip()}"
+    texto = f"{ruta}\n\n{contenido.strip()}"
 
     # Telegram tiene límite de 4096 caracteres por mensaje: partimos en trozos si hace falta
     MAX_LEN = 4096
@@ -326,7 +362,7 @@ async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def error_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Muestra el detalle técnico (traceback) del último error producido, si lo hay"""
     if _ultimo_error["detalle"] is None:  # no se ha producido ningún error todavía
-        await update.message.reply_text("No se ha registrado ningún error todavía. ✅")
+        await update.message.reply_text("No se ha registrado ningún error todavía.")
         return
 
     cabecera = (

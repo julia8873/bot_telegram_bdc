@@ -13,7 +13,7 @@ import os       # Para leer las variables de entorno (.env).
 import time     # Para esperar entre reintentos
 import requests # Para hacer peticiones HTTP a las APIs de los LLMs.
 
-logger = logging.getLogger("llm-client")  # logger propio de este módulo
+logger = logging.getLogger("llm-client")
 
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").lower()           # Proveedor
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1") # URL base de la API.
@@ -65,7 +65,7 @@ def _generate_openai_compatible(prompt: str, system_prompt: str) -> str:
     payload = {
         "model": LLM_MODEL,
         "messages": messages,
-        "temperature": 0,  # 0 → respuestas deterministas, sin creatividad
+        "temperature": 0,  # 0 -> respuestas deterministas, sin creatividad
     }
 
     espera = ESPERA_INICIAL  # segundos de espera, se duplica en cada reintento
